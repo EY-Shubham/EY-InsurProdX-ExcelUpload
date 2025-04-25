@@ -49,7 +49,7 @@ function checkCondition(condition, value) {
   return true;
 }
 
-function evaluateConditions(conditions, data) {
+/*function evaluateConditions(conditions, data) {
   if (!Array.isArray(conditions)) {
     return false;
   }
@@ -86,8 +86,14 @@ const getRuleData = async (req, res) => {
     const db = client.db("test");
     const collection = db.collection(collectionName);
 
+    console.log("data",data);
+    console.log("collection",collectionName);
+    
+    
     const rules = await collection.find().toArray();
-
+  
+    console.log("rules",rules);
+    
     const rule = rules.find((record) =>
       evaluateConditions(record.conditions, data)
     );
@@ -100,6 +106,83 @@ const getRuleData = async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).send("Error retrieving data");
+  } finally {
+    await client.close();
+  }
+};*/
+
+const getRuleData = async (req, res) => {
+  try {
+    await client.connect();
+    const input = req.query;
+
+    const collectionName = input?.collectionName;
+    delete input.collectionName;
+
+    // Convert Age to Number (and others if needed)
+    const userData = { ...input };
+    if (userData.Age) userData.Age = Number(userData.Age);
+
+    // Handle ranges like "5-7" for Annual_Income
+    if (userData.Annual_Income && userData.Annual_Income.includes("-")) {
+      const userIncomeRange = userData.Annual_Income;
+      userData.Annual_Income = userIncomeRange; // keep it as string range for comparison
+    }
+
+    const db = client.db("test");
+    const collection = db.collection(collectionName);
+
+    // Function to check if the user's income falls within the given range
+    const isIncomeInRange = (incomeRange, userValue) => {
+      if (!incomeRange.includes('-')) return false;
+      
+      const [min, max] = incomeRange.split("-").map(Number);
+      return userValue >= min && userValue <= max;
+    };
+
+    const rules = await collection.find().toArray();
+
+    const matchedRule = rules.find(rule => {
+      return rule.conditions.every(condition => {
+        const key = Object.keys(condition)[0];
+        const cond = condition[key];
+        const userValue = userData[key];
+
+        if (cond.$in) {
+          // Special case: support CSV values like "A, B"
+          const values = String(userValue).split(",").map(v => v.trim());
+          return values.some(val => cond.$in.includes(val));
+        }
+
+        if (key === "Annual_Income" && cond.$in) {
+          // If the field is Annual_Income, check if the income falls within the range
+          return cond.$in.some(range => isIncomeInRange(range, userValue));
+        }
+
+        if (cond.$gte !== undefined && cond.$lte !== undefined) {
+          return userValue >= cond.$gte && userValue <= cond.$lte;
+        }
+
+        if (cond.$gte !== undefined) {
+          return userValue >= cond.$gte;
+        }
+
+        if (cond.$lte !== undefined) {
+          return userValue <= cond.$lte;
+        }
+
+        return userValue === cond; // fallback exact match
+      });
+    });
+
+    if (matchedRule) {
+      res.json({ then: matchedRule.then });
+    } else {
+      res.status(404).json({ message: "No matching rule found" });
+    }
+  } catch (error) {
+    console.error("Error:", error);
+    res.status(500).send("Internal Server Error");
   } finally {
     await client.close();
   }
