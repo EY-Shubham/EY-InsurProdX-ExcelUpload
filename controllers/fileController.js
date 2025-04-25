@@ -29,10 +29,11 @@ const parseExcelFile = async (filePath) => {
     const collectionId = sheet2[1][1];
 
     const finalSheetData = [];
-
+    console.log("sheet",sheet);
+    
     // Check if model already exists, otherwise create it
     const DynamicModel = mongoose.models[DbName] || mongoose.model(DbName, new mongoose.Schema({}, { strict: false }), DbName);
-    for (let i = 2; i < sheet.length - 2; i++) {
+    for (let i = 2; i < sheet.length; i++) {
       let sheetData = {
         ruleName: null,
         conditions: [],
@@ -45,9 +46,14 @@ const parseExcelFile = async (filePath) => {
         const value = sheet[i][j];
         const regex = /^(>=|<=|!=|>|<|=)?\s*(-?\d+(\.\d+)?)$/;
 
+        console.log("header", header);
+        console.log("operator", operator);
+        console.log("value", value);
+        
+        
         if (header === "Rule Name") {
           sheetData.ruleName = value;
-        } else if (regex.test(operator)) {
+        } else if (typeof operator === 'string' && regex.test(operator)) {
           const match = operator.match(regex);
           const opSymbol = match[1] || "=";
           const numValue = parseFloat(match[2]);
@@ -96,12 +102,18 @@ const parseExcelFile = async (filePath) => {
 
     return finalSheetData;
   } catch (error) {
+    console.log(error);
+    
     throw new Error(`Error parsing Excel file: ${error.message}`);
   }
 };
 
 // Route to upload and process the Excel file
 const uploadFile = async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: "No file uploaded. Make sure the key is 'file' and it's of type File." });
+  }
+
   const filePath = req.file.path;
 
   try {
@@ -114,6 +126,8 @@ const uploadFile = async (req, res) => {
     // Send the parsed rule as the response
     res.json(rule);
   } catch (err) {
+    console.log(err);
+    
     res.status(400).send(`Error processing file: ${err.message}`);
   }
 };
